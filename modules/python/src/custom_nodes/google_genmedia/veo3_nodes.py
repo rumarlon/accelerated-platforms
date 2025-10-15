@@ -17,8 +17,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
-from .constants import MAX_SEED, VEO3_VALID_ASPECT_RATIOS, Veo3Model
-from .custom_exceptions import APIExecutionError, APIInputError, ConfigurationError
+from .constants import (
+    MAX_SEED,
+    SUPPORTED_VIDEO_EXTENSIONS,
+    VEO3_VALID_ASPECT_RATIOS,
+    Veo3Model,
+)
 from .veo3_api import Veo3API
 
 
@@ -33,7 +37,7 @@ class Veo3TextToVideoNode:
             "required": {
                 "model": (
                     [model.name for model in Veo3Model],
-                    {"default": Veo3Model.VEO_3_PREVIEW.name},
+                    {"default": Veo3Model.VEO_3_1_PREVIEW.name},
                 ),
                 "prompt": ("STRING", {"multiline": True}),
                 "aspect_ratio": (VEO3_VALID_ASPECT_RATIOS, {"default": "16:9"}),
@@ -89,7 +93,7 @@ class Veo3TextToVideoNode:
 
     def generate(
         self,
-        model: str = Veo3Model.VEO_3_PREVIEW.name,
+        model: str = Veo3Model.VEO_3_1_PREVIEW.name,
         prompt: str = "A drone shot smoothly flies through an ancient, mist-shrouded jungle at dawn.",
         aspect_ratio: str = "16:9",
         output_resolution: str = "720p",
@@ -129,12 +133,13 @@ class Veo3TextToVideoNode:
             A tuple containing a list of file paths to the generated videos.
 
         Raises:
-            RuntimeError: If API configuration fails, or if video generation encounters an API error.
+            RuntimeError: If API initialization fails, or if video generation encounters an error.
         """
         try:
             api = Veo3API(project_id=gcp_project_id, region=gcp_region)
-        except ConfigurationError as e:
-            raise RuntimeError(f"Veo API Configuration Error: {e}") from e
+        except Exception as e:
+            # Catch any exception from Veo3API.__init__ (ValueError, RuntimeError)
+            raise RuntimeError(f"Failed to initialize Veo API: {e}")
 
         seed_for_api = seed if seed != 0 else None
 
@@ -154,14 +159,14 @@ class Veo3TextToVideoNode:
                 negative_prompt=negative_prompt,
                 seed=seed_for_api,
             )
-        except APIInputError as e:
-            raise RuntimeError(f"Video generation configuration error: {e}") from e
-        except APIExecutionError as e:
-            raise RuntimeError(f"Veo API error: {e}") from e
+        except ValueError as e:
+            raise RuntimeError(f"Video generation configuration error: {e}")
+        except RuntimeError as e:
+            raise RuntimeError(f"Veo API error: {e}")
         except Exception as e:
             raise RuntimeError(
                 f"An unexpected error occurred during video generation: {e}"
-            ) from e
+            )
 
         return (video_paths,)
 
@@ -178,7 +183,7 @@ class Veo3GcsUriImageToVideoNode:
             "required": {
                 "model": (
                     [model.name for model in Veo3Model],
-                    {"default": Veo3Model.VEO_3_PREVIEW.name},
+                    {"default": Veo3Model.VEO_3_1_PREVIEW.name},
                 ),
                 "gcsuri": (
                     "STRING",
@@ -207,6 +212,10 @@ class Veo3GcsUriImageToVideoNode:
                 "sample_count": ("INT", {"default": 1, "min": 1, "max": 4, "step": 1}),
             },
             "optional": {
+                "last_frame_gcsuri": (
+                    "STRING",
+                    {"default": "", "tooltip": "GCS URI for the last frame image"},
+                ),
                 "output_gcs_uri": ("STRING", {"default": ""}),
                 "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
                 "seed": (
@@ -242,7 +251,7 @@ class Veo3GcsUriImageToVideoNode:
 
     def generate(
         self,
-        model: str = Veo3Model.VEO_3_PREVIEW.name,
+        model: str = Veo3Model.VEO_3_1_PREVIEW.name,
         gcsuri: str = "",
         image_format: str = "PNG",
         prompt: str = "",
@@ -257,6 +266,7 @@ class Veo3GcsUriImageToVideoNode:
         output_gcs_uri: str = "",
         negative_prompt: Optional[str] = None,
         seed: Optional[int] = None,
+        last_frame_gcsuri: str = "",
         gcp_project_id: Optional[str] = None,
         gcp_region: Optional[str] = None,
     ) -> Tuple[List[str],]:
@@ -279,6 +289,7 @@ class Veo3GcsUriImageToVideoNode:
             output_gcs_uri: output gcs url to store the video. Required with lossless output.
             negative_prompt: An optional prompt to guide the model to avoid generating certain things.
             seed: An optional seed for reproducible video generation.
+            last_frame_gcsuri: gcsuri of the last_frame image for interpolation.
             gcp_project_id: GCP project ID where the Veo will be queried via Vertex AI APIs
             gcp_region: GCP region for Vertex AI APIs to query Veo
 
@@ -286,12 +297,12 @@ class Veo3GcsUriImageToVideoNode:
             A tuple containing a list of file paths to the generated videos.
 
         Raises:
-            RuntimeError: If API configuration fails, or if video generation encounters an API error.
+            RuntimeError: If API initialization fails, or if video generation encounters an error.
         """
         try:
             api = Veo3API(project_id=gcp_project_id, region=gcp_region)
-        except ConfigurationError as e:
-            raise RuntimeError(f"Veo API Configuration Error: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize Veo API: {e}")
 
         seed_for_api = seed if seed != 0 else None
 
@@ -309,18 +320,19 @@ class Veo3GcsUriImageToVideoNode:
                 generate_audio=generate_audio,
                 enhance_prompt=enhance_prompt,
                 sample_count=sample_count,
+                last_frame=last_frame,
                 output_gcs_uri=output_gcs_uri,
                 negative_prompt=negative_prompt,
                 seed=seed_for_api,
             )
-        except APIInputError as e:
-            raise RuntimeError(f"Video generation configuration error: {e}") from e
-        except APIExecutionError as e:
-            raise RuntimeError(f"Video generation API error: {e}") from e
+        except ValueError as e:
+            raise RuntimeError(f"Video generation configuration error: {e}")
+        except RuntimeError as e:
+            raise RuntimeError(f"Video generation API error: {e}")
         except Exception as e:
             raise RuntimeError(
                 f"An unexpected error occurred during video generation: {e}"
-            ) from e
+            )
 
         return (video_paths,)
 
@@ -337,7 +349,7 @@ class Veo3ImageToVideoNode:
             "required": {
                 "model": (
                     [model.name for model in Veo3Model],
-                    {"default": Veo3Model.VEO_3_PREVIEW.name},
+                    {"default": Veo3Model.VEO_3_1_PREVIEW.name},
                 ),
                 "image": ("IMAGE",),
                 "image_format": (
@@ -363,6 +375,7 @@ class Veo3ImageToVideoNode:
                 "sample_count": ("INT", {"default": 1, "min": 1, "max": 4, "step": 1}),
             },
             "optional": {
+                "last_frame": ("IMAGE",),
                 "output_gcs_uri": ("STRING", {"default": ""}),
                 "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
                 "seed": (
@@ -398,7 +411,7 @@ class Veo3ImageToVideoNode:
 
     def generate(
         self,
-        model: str = Veo3Model.VEO_3_PREVIEW.name,
+        model: str = Veo3Model.VEO_3_1_PREVIEW.name,
         image: torch.Tensor = None,
         image_format: str = "PNG",
         prompt: str = "",
@@ -411,6 +424,7 @@ class Veo3ImageToVideoNode:
         enhance_prompt: bool = True,
         sample_count: int = 1,
         seed: Optional[int] = None,
+        last_frame: Optional[torch.Tensor] = None,
         output_gcs_uri: str = "",
         negative_prompt: Optional[str] = None,
         gcp_project_id: Optional[str] = None,
@@ -433,6 +447,7 @@ class Veo3ImageToVideoNode:
             enhance_prompt: Whether to enhance the prompt automatically.
             sample_count: The number of video samples to generate.
             seed: An optional seed for reproducible video generation.
+            last_frame: last frame for interpolation.
             output_gcs_uri: output gcs url to store the video. Required with lossless output.
             negative_prompt: An optional prompt to guide the model to avoid generating certain things.
             gcp_project_id: GCP project ID where the Veo will be queried via Vertex AI APIs
@@ -442,12 +457,12 @@ class Veo3ImageToVideoNode:
             A tuple containing a list of file paths to the generated videos.
 
         Raises:
-            RuntimeError: If API configuration fails, or if video generation encounters an API error.
+            RuntimeError: If API initialization fails, or if video generation encounters an error.
         """
         try:
             api = Veo3API(project_id=gcp_project_id, region=gcp_region)
-        except ConfigurationError as e:
-            raise RuntimeError(f"Veo API Configuration Error: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize Veo API: {e}")
 
         seed_for_api = seed if seed != 0 else None
 
@@ -456,6 +471,7 @@ class Veo3ImageToVideoNode:
         print(f"Received {num_input_images} input image(s) for video generation.")
         for i in range(num_input_images):
             single_image_tensor = image[i].unsqueeze(0)
+            current_image = image[i]
             print(
                 f"Processing image {i+1}/{num_input_images} (shape: {single_image_tensor.shape})..."
             )
@@ -473,19 +489,20 @@ class Veo3ImageToVideoNode:
                     generate_audio=generate_audio,
                     enhance_prompt=enhance_prompt,
                     sample_count=sample_count,
+                    last_frame=last_frame,
                     output_gcs_uri=output_gcs_uri,
                     negative_prompt=negative_prompt,
                     seed=seed_for_api,
                 )
                 all_generated_video_paths.extend(video_paths)
-            except APIInputError as e:
-                raise RuntimeError(f"Video generation configuration error: {e}") from e
-            except APIExecutionError as e:
-                raise RuntimeError(f"Video generation API error: {e}") from e
+            except ValueError as e:
+                raise RuntimeError(f"Video generation configuration error: {e}")
+            except RuntimeError as e:
+                raise RuntimeError(f"Video generation API error: {e}")
             except Exception as e:
                 raise RuntimeError(
                     f"An unexpected error occurred during video generation: {e}"
-                ) from e
+                )
 
         return (all_generated_video_paths,)
 
