@@ -320,7 +320,7 @@ class Veo3GcsUriImageToVideoNode:
                 generate_audio=generate_audio,
                 enhance_prompt=enhance_prompt,
                 sample_count=sample_count,
-                last_frame=last_frame,
+                last_frame_gcsuri=last_frame_gcsuri,
                 output_gcs_uri=output_gcs_uri,
                 negative_prompt=negative_prompt,
                 seed=seed_for_api,
