@@ -442,7 +442,7 @@ def generate_video_from_image(
         temp_config["resolution"] = output_resolution
 
     if re.search(
-        r"veo-(2\.0|3\.1)",
+        r"veo-2\.0",
         model.value if isinstance(model, object) and hasattr(model, "value") else model,
     ):
         if last_frame is not None:
